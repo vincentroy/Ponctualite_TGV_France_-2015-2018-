@@ -1,0 +1,119 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r message=FALSE}
+library(tidyverse)
+```
+```{r}
+full_trains <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-02-26/full_trains.csv")
+small_trains <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-02-26/small_trains.csv") 
+
+```
+
+DATA CLEANING
+
+La visualisation est un outil important pour générer des idées, mais il est rare que l'on obtienne les données sous une forme ne nécessitant aucune manipulation. Souvent, il faut créer de nouvelles variables, en renommer certaines ou réorganiser les observations afin de rendre les données un peu plus "propres" (data cleaning). La première étape lorsque l'on reçoit un jeu de données est de vérifier le format de chaque variable (une chaine de caractère pour un mot, le format date pour une date, etc.)
+
+```{r}
+str(small_trains)
+```
+
+Les durées sont comptabilisées en minutes ce qui semble raisonnable que les heures pour étudier les retards. Le mois est représenté par un chiffre, et la variable est de type numérique. Il serait plus intéressant de garder les chiffres mais changer le type de variable en facteurs pour dire au programme qu'il s'agit d'une variable discrète. On fera de même pour les années
+```{r}
+small_trains$month <- as.factor(small_trains$month)
+small_trains$year <- as.factor(small_trains$year)
+```
+
+
+Voyons s'il manque des valeurs dans le tableau :
+```{r}
+sum(is.na(small_trains))
+```
+Un total de 9654 cellules sont vides. Cela peut poser de sérieux problèmes d'analyse si leur cas n'est pas traité. Allons voir plus en détail de quoi il relève :
+```{r}
+sum(is.na(small_trains$service))
+```
+```{r}
+sum(is.na(small_trains$num_arriving_late))
+```
+```{r}
+sum(is.na(small_trains$delayed_number))
+```
+
+8580 + 54 + 1020 = 9654. Les trois colonnes affectées par des valeurs manquantes sont identifiées. Regardons de plus près ce que les cellules non vides indiquent :
+```{r}
+na_small_train <- small_trains %>%
+  filter(is.na(small_trains$service))
+na_small_train
+```
+A priori, il n'y a aucune raison pour que des cellules de la colonne "service" soient vides, il faut donc leur donner une valeur : National ou International. Créons une liste de destinations internationales à partir du service "International"
+```{r}
+service_inter <- small_trains %>%
+  filter(service == "International")
+list_dest_international <- unique(service_inter$arrival_station)
+```
+Si parmi les lignes avec une cellule manquante, on trouve une station de départ ou d'arrivée qui fait partie de cette liste, on attribuera la valeur "International", et la valeur "National" aux autres cellules.
+```{r}
+for (i in 1 : length(small_trains$service)) {
+  if (is.na(small_trains$service[[i]]) & (small_trains$departure_station[[i]] %in% list_dest_international | small_trains$arrival_station[[i]] %in% list_dest_international)) {
+    small_trains$service[[i]] <- "International"
+  }
+}
+```
+Les valeurs "International" manquantes ont été ajoutées. Il reste à ajouter les valeurs "National" à toutes les autres cellules NA dans la colonne "service".
+```{r}
+for (i in 1 : length(small_trains$service)) {
+  if (is.na(small_trains$service[[i]])) {
+    small_trains$service[[i]] <- "National"
+  }
+}
+```
+
+Occupons-nous maintenant des valeurs manquantes dans la colonne "num_arriving_late" (Nombre de trains étant arrivé en retard).
+
+```{r}
+na_small_train_num <- small_trains %>%
+  filter(is.na(small_trains$num_arriving_late))
+na_small_train_num
+```
+
+On remarque des valeurs négatives ou bien positives mais très proches de 0 dans la colonne avg_delay_all_arriving (retard moyen à l'arrivée en minutes). La valeur maximum de cette colonne est de 2,5 minutes (cf. ligne de code ci-dessous). 
+```{r}
+max(na_small_train_num$avg_delay_all_arriving)
+```
+Avec une valeur de retard moyen aussi faible, on peut faire l'hypothèse qu'aucun train n'est arrivé en retard. Les valeurs manquantes sont alors remplacées par 0 :
+```{r}
+for (i in 1 : length(small_trains$num_arriving_late)) {
+  if (is.na(small_trains$num_arriving_late[[i]])) {
+    small_trains$num_arriving_late[[i]] <- 0
+  }
+}
+```
+
+Occupons-nous enfin des valeurs manquantes dans la colonne "delayed_number" (pourcentage de trains en retard).
+```{r}
+na_small_train_delayed_num <- small_trains %>%
+  filter(is.na(small_trains$delayed_number))
+na_small_train_delayed_num
+```
+Les valeurs de cette colonne devrait correspondre à l'opération : num_arriving_late / total_num_trips. Cependant, cela n'est pas confirmé par les valeurs existantes dans cette colonne. L'idéal serait ici de prendre contact avec la personne en charge de la création de cette base de données à la SNCF pour comprendre comment cette valeur est calculée. L'objet de ce papier est de montrer des compétences en action, aussi je prends la liberté d'affecter le résultat de l'opération ci-dessus aux cellules à valeur manquante.
+
+```{r}
+for (i in 1 : length(small_trains$delayed_number)) {
+  if (is.na(small_trains$delayed_number[[i]])) {
+    small_trains$delayed_number[[i]] <- small_trains$num_arriving_late[[i]] / small_trains$total_num_trips[[i]]
+  }
+}
+```
+
+Vérifions qu'il ne reste plus de valeurs manquantes dans le jeu de données :
+```{r}
+sum(is.na(small_trains))
+```
